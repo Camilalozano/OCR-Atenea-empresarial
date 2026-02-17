@@ -123,38 +123,49 @@ def health():
 
 
 # =========================
-# 1) 📤 Upload (N archivos)
+# 1) 📤 Supabase
 # =========================
-@app.post("/upload", response_model=UploadResponse)
+@app.post("/upload")
 async def upload(files: List[UploadFile] = File(...)):
     if not files:
         raise HTTPException(status_code=400, detail="No se recibieron archivos.")
 
-    case_id = uuid.uuid4().hex
-    cdir = _case_dir(case_id)
-    cdir.mkdir(parents=True, exist_ok=True)
+    case_id = uuid.uuid4().hex  # identificador único para agrupar
 
-    saved = []
+    uploads_meta = []
+
     for f in files:
-        # Guardamos con nombre “seguro” (evita path traversal)
-        original_name = (f.filename or "archivo").strip()
-        safe_name = original_name.replace("/", "_").replace("\\", "_")
-        out_path = cdir / safe_name
+        content = await f.read()
+        safe_name = f.filename.replace("/", "_")
 
-        with out_path.open("wb") as w:
-            shutil.copyfileobj(f.file, w)
+        # 1) Subir a Supabase (bucket 'ocr-atenea')
+        path_supabase = f"{case_id}/input/{safe_name}"
 
-        saved.append(
+        res = supabase.storage.from_("ocr-atenea").upload(
+            path_supabase,
+            content,
             {
-                "original_name": original_name,
-                "saved_name": safe_name,
-                "path": str(out_path),
-                "content_type": f.content_type or _detect_content_type(original_name),
-                "size_bytes": out_path.stat().st_size,
+                "cacheControl": "3600",
+                "contentType": f.content_type or "application/octet-stream"
             }
         )
 
-    return UploadResponse(case_id=case_id, files=saved)
+        # Si hay error al subir
+        if res.get("error"):
+            raise HTTPException(status_code=500, detail=f"Error subiendo archivo: {res['error']}")
+
+        # 2) Obtener la URL pública (si necesitas compartirlo)
+        public_url = supabase.storage.from_("ocr-atenea").get_public_url(path_supabase)
+
+        uploads_meta.append({
+            "original_filename": f.filename,
+            "storage_path": path_supabase,
+            "public_url": public_url.get("publicURL"),
+            "content_type": f.content_type,
+            "size_bytes": len(content),
+        })
+
+    return {"case_id": case_id, "files_uploaded": uploads_meta}
 
 
 # =========================
