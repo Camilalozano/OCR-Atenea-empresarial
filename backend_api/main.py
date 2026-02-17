@@ -14,6 +14,9 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from supabase_config import supabase
+
+
 # ✅ Importa tu pipeline REAL (core_extractor.py)
 # Debe exponer:
 # - DocItem (dataclass o pydantic)
