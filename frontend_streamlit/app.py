@@ -4,16 +4,32 @@ import streamlit as st
 
 st.set_page_config(page_title="OCR Atenea (Frontend)", layout="wide")
 
-BACKEND_URL = st.secrets.get("BACKEND_URL", os.getenv("BACKEND_URL", "http://localhost:8000"))
+try:
+    default_backend_from_secrets = st.secrets.get("BACKEND_URL")
+except FileNotFoundError:
+    default_backend_from_secrets = None
+
+DEFAULT_BACKEND_URL = default_backend_from_secrets or os.getenv("BACKEND_URL", "http://localhost:8000")
+
+
+def _clean_backend_url(raw_url: str) -> str:
+    return raw_url.strip().rstrip("/")
 
 st.title("📄 OCR Atenea — Frontend (Streamlit)")
 st.caption("Sube documentos (hasta 28 o más), procesa en backend y descarga Excel.")
 
 with st.sidebar:
     st.subheader("⚙️ Configuración")
+    backend_url_input = st.text_input("Backend URL", value=DEFAULT_BACKEND_URL)
+    BACKEND_URL = _clean_backend_url(backend_url_input)
     st.write("Backend URL:")
     st.code(BACKEND_URL)
     st.info("En enterprise, la OpenAI API key vive solo en el backend (Secrets).")
+    if "localhost" in BACKEND_URL or "127.0.0.1" in BACKEND_URL:
+        st.warning(
+            "Si este frontend está desplegado (Streamlit Cloud), `localhost` no apunta a tu backend remoto. "
+            "Configura aquí la URL pública del backend (ej: https://mi-backend.onrender.com)."
+        )
 
 st.subheader("1) Cargar documentos")
 files = st.file_uploader(
@@ -36,7 +52,16 @@ if do_process and files:
             ct = "application/pdf" if f.name.lower().endswith(".pdf") else "image/jpeg"
             multi.append(("files", (f.name, f.getvalue(), ct)))
 
-        up = requests.post(f"{BACKEND_URL}/upload", files=multi, timeout=300)
+        try:
+            up = requests.post(f"{BACKEND_URL}/upload", files=multi, timeout=300)
+        except requests.exceptions.RequestException as exc:
+            st.error(
+                "No se pudo conectar con el backend. "
+                "Revisa que `Backend URL` sea accesible públicamente y que el backend esté encendido."
+            )
+            st.exception(exc)
+            st.stop()
+
         if up.status_code != 200:
             st.error(f"Error en /upload: {up.status_code} - {up.text}")
             st.stop()
@@ -45,7 +70,13 @@ if do_process and files:
         st.success(f"✅ Upload listo. case_id: {case_id}")
 
     with st.spinner("Procesando en backend (OCR + extracción + validaciones)..."):
-        pr = requests.post(f"{BACKEND_URL}/process/{case_id}", timeout=1200)
+        try:
+            pr = requests.post(f"{BACKEND_URL}/process/{case_id}", timeout=1200)
+        except requests.exceptions.RequestException as exc:
+            st.error("Fallo de conexión en /process. Revisa backend URL y estado del backend.")
+            st.exception(exc)
+            st.stop()
+
         if pr.status_code != 200:
             st.error(f"Error en /process: {pr.status_code} - {pr.text}")
             st.stop()
@@ -53,7 +84,13 @@ if do_process and files:
     st.success("✅ Procesamiento completo")
 
     with st.spinner("Cargando resultados..."):
-        rr = requests.get(f"{BACKEND_URL}/results/{case_id}", timeout=300)
+        try:
+            rr = requests.get(f"{BACKEND_URL}/results/{case_id}", timeout=300)
+        except requests.exceptions.RequestException as exc:
+            st.error("Fallo de conexión en /results. Revisa backend URL y estado del backend.")
+            st.exception(exc)
+            st.stop()
+
         if rr.status_code != 200:
             st.error(f"Error en /results: {rr.status_code} - {rr.text}")
             st.stop()
