@@ -27,7 +27,10 @@ def _resolve_default_backend_url() -> str:
     candidate_names = ["BACKEND_URL", "BACKEND_API_URL", "API_BASE_URL"]
     from_secrets = [_read_secret(name) for name in candidate_names]
     from_env = [os.getenv(name) for name in candidate_names]
-    return _first_non_empty(from_secrets + from_env)
+
+    configured = _first_non_empty(from_secrets + from_env)
+    return configured or "http://localhost:8000"
+
 
 
 def _clean_backend_url(raw_url: str) -> str:
@@ -64,14 +67,10 @@ with st.sidebar:
         st.caption(f"Backend actual: `{BACKEND_URL}`")
 
     st.info("En enterprise, la OpenAI API key vive solo en el backend (Secrets).")
-    if not BACKEND_URL:
+    if _is_localhost_url(BACKEND_URL):
         st.warning(
-            "Configura una URL pública de backend antes de procesar (ej: https://mi-backend.onrender.com)."
-        )
-    elif _is_localhost_url(BACKEND_URL):
-        st.warning(
-            "Si este frontend está desplegado (Streamlit Cloud), `localhost` no apunta a tu backend remoto. "
-            "Configura aquí la URL pública del backend (ej: https://mi-backend.onrender.com)."
+            "Usando backend local (`localhost`). Esto funciona cuando ejecutas frontend+backend en tu máquina. "
+            "Si este frontend está desplegado (Streamlit Cloud), cambia a la URL pública de tu backend."
         )
 
 st.subheader("1) Cargar documentos")
@@ -86,6 +85,8 @@ with colA:
     do_process = st.button(
         "🚀 Subir y procesar",
         type="primary",
+        disabled=(not files),
+        help="Carga al menos un archivo para habilitar este botón.",
         disabled=(not files or not BACKEND_URL),
         help="Carga al menos un archivo y configura un Backend URL para habilitar este botón.",
     )
@@ -94,14 +95,7 @@ with colB:
 
 if do_process and files:
     if not BACKEND_URL:
-        st.error("`Backend URL` es obligatorio. Ingresa la URL pública de tu backend para continuar.")
-        st.stop()
-
-    if _is_localhost_url(BACKEND_URL):
-        st.error(
-            "`Backend URL` no puede ser localhost en despliegues de Streamlit Cloud. "
-            "Usa la URL pública de tu backend."
-        )
+        st.error("`Backend URL` es obligatorio. Ingresa la URL de tu backend para continuar.")
         st.stop()
 
     with st.spinner("Subiendo archivos al backend..."):
