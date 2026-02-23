@@ -23,13 +23,40 @@ def _read_secret(name: str) -> str | None:
     return None
 
 
+def _read_nested_secret(section: str, key: str) -> str | None:
+    try:
+        nested = st.secrets.get(section)
+    except FileNotFoundError:
+        return None
+
+    if hasattr(nested, "get"):
+        value = nested.get(key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _is_streamlit_cloud() -> bool:
+    return bool(os.getenv("STREAMLIT_SHARING_MODE"))
+
+
 def _resolve_default_backend_url() -> str:
     candidate_names = ["BACKEND_URL", "BACKEND_API_URL", "API_BASE_URL"]
     from_secrets = [_read_secret(name) for name in candidate_names]
     from_env = [os.getenv(name) for name in candidate_names]
+    from_nested_secrets = [
+        _read_nested_secret("backend", "url"),
+        _read_nested_secret("api", "base_url"),
+    ]
 
-    configured = _first_non_empty(from_secrets + from_env)
-    return configured or "http://localhost:8000"
+    configured = _first_non_empty(from_secrets + from_env + from_nested_secrets)
+    if configured:
+        return configured
+
+    if _is_streamlit_cloud():
+        return ""
+
+    return "http://localhost:8000"
 
 
 
@@ -67,7 +94,12 @@ with st.sidebar:
         st.caption(f"Backend actual: `{BACKEND_URL}`")
 
     st.info("En enterprise, la OpenAI API key vive solo en el backend (Secrets).")
-    if _is_localhost_url(BACKEND_URL):
+    if not BACKEND_URL and _is_streamlit_cloud():
+        st.warning(
+            "No hay backend configurado. En Streamlit Cloud define `BACKEND_URL` en Settings → Secrets "
+            "con la URL pública de tu API (ej. `https://tu-backend.onrender.com`)."
+        )
+    elif _is_localhost_url(BACKEND_URL):
         st.warning(
             "Usando backend local (`localhost`). Esto funciona cuando ejecutas frontend+backend en tu máquina. "
             "Si este frontend está desplegado (Streamlit Cloud), cambia a la URL pública de tu backend."
