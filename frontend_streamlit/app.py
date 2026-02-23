@@ -9,23 +9,37 @@ try:
 except FileNotFoundError:
     default_backend_from_secrets = None
 
-DEFAULT_BACKEND_URL = default_backend_from_secrets or os.getenv("BACKEND_URL", "http://localhost:8000")
+default_backend_from_env = os.getenv("BACKEND_URL")
+DEFAULT_BACKEND_URL = default_backend_from_secrets or default_backend_from_env or ""
 
 
 def _clean_backend_url(raw_url: str) -> str:
     return raw_url.strip().rstrip("/")
+
+
+def _is_localhost_url(url: str) -> bool:
+    low = url.lower()
+    return "localhost" in low or "127.0.0.1" in low
 
 st.title("📄 OCR Atenea — Frontend (Streamlit)")
 st.caption("Sube documentos (hasta 28 o más), procesa en backend y descarga Excel.")
 
 with st.sidebar:
     st.subheader("⚙️ Configuración")
-    backend_url_input = st.text_input("Backend URL", value=DEFAULT_BACKEND_URL)
+    backend_url_input = st.text_input(
+        "Backend URL",
+        value=DEFAULT_BACKEND_URL,
+        placeholder="https://mi-backend.onrender.com",
+    )
     BACKEND_URL = _clean_backend_url(backend_url_input)
     st.write("Backend URL:")
     st.code(BACKEND_URL)
     st.info("En enterprise, la OpenAI API key vive solo en el backend (Secrets).")
-    if "localhost" in BACKEND_URL or "127.0.0.1" in BACKEND_URL:
+    if not BACKEND_URL:
+        st.warning(
+            "Configura una URL pública de backend antes de procesar (ej: https://mi-backend.onrender.com)."
+        )
+    elif _is_localhost_url(BACKEND_URL):
         st.warning(
             "Si este frontend está desplegado (Streamlit Cloud), `localhost` no apunta a tu backend remoto. "
             "Configura aquí la URL pública del backend (ej: https://mi-backend.onrender.com)."
@@ -45,6 +59,17 @@ with colB:
     st.write("")
 
 if do_process and files:
+    if not BACKEND_URL:
+        st.error("`Backend URL` es obligatorio. Ingresa la URL pública de tu backend para continuar.")
+        st.stop()
+
+    if _is_localhost_url(BACKEND_URL):
+        st.error(
+            "`Backend URL` no puede ser localhost en despliegues de Streamlit Cloud. "
+            "Usa la URL pública de tu backend."
+        )
+        st.stop()
+
     with st.spinner("Subiendo archivos al backend..."):
         multi = []
         for f in files:
