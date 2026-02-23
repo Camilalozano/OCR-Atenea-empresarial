@@ -1,73 +1,97 @@
 import os
+
 import requests
 import streamlit as st
 
 st.set_page_config(page_title="OCR Atenea (Frontend)", layout="wide")
 
-try:
-    default_backend_from_secrets = st.secrets.get("BACKEND_URL")
-except FileNotFoundError:
-    default_backend_from_secrets = None
 
-default_backend_from_env = os.getenv("BACKEND_URL")
-DEFAULT_BACKEND_URL = default_backend_from_secrets or default_backend_from_env or ""
+def _first_non_empty(values: list[str | None]) -> str:
+    for value in values:
+        if value and value.strip():
+            return value
+    return ""
+
+
+def _read_secret(name: str) -> str | None:
+    try:
+        value = st.secrets.get(name)
+        if isinstance(value, str):
+            return value
+    except FileNotFoundError:
+        return None
+    return None
+
+
+def _resolve_default_backend_url() -> str:
+    candidate_names = ["BACKEND_URL", "BACKEND_API_URL", "API_BASE_URL"]
+    from_secrets = [_read_secret(name) for name in candidate_names]
+    from_env = [os.getenv(name) for name in candidate_names]
+    configured = _first_non_empty(from_secrets + from_env)
+    return configured or "http://localhost:8000"
 
 
 def _clean_backend_url(raw_url: str) -> str:
-    return raw_url.strip().rstrip("/")
+    url = raw_url.strip().rstrip("/")
+    if url and "://" not in url:
+        url = f"https://{url}"
+    return url
 
 
 def _is_localhost_url(url: str) -> bool:
     low = url.lower()
     return "localhost" in low or "127.0.0.1" in low
 
+
+DEFAULT_BACKEND_URL = _clean_backend_url(_resolve_default_backend_url())
+
+if "backend_url" not in st.session_state:
+    st.session_state.backend_url = DEFAULT_BACKEND_URL
+
 st.title("📄 OCR Atenea — Frontend (Streamlit)")
 st.caption("Sube documentos (hasta 28 o más), procesa en backend y descarga Excel.")
 
 with st.sidebar:
     st.subheader("⚙️ Configuración")
-    backend_url_input = st.text_input(
+    st.text_input(
         "Backend URL",
-        value=DEFAULT_BACKEND_URL,
+        key="backend_url",
         placeholder="https://mi-backend.onrender.com",
+        help="URL pública del backend (sin localhost si estás en Streamlit Cloud).",
     )
-    BACKEND_URL = _clean_backend_url(backend_url_input)
-    st.write("Backend URL:")
-    st.code(BACKEND_URL)
+    BACKEND_URL = _clean_backend_url(st.session_state.backend_url)
+
+    if BACKEND_URL:
+        st.caption(f"Backend actual: `{BACKEND_URL}`")
+
     st.info("En enterprise, la OpenAI API key vive solo en el backend (Secrets).")
-    if not BACKEND_URL:
+    if _is_localhost_url(BACKEND_URL):
         st.warning(
-            "Configura una URL pública de backend antes de procesar (ej: https://mi-backend.onrender.com)."
-        )
-    elif _is_localhost_url(BACKEND_URL):
-        st.warning(
-            "Si este frontend está desplegado (Streamlit Cloud), `localhost` no apunta a tu backend remoto. "
-            "Configura aquí la URL pública del backend (ej: https://mi-backend.onrender.com)."
+            "Usando backend local (`localhost`). Esto funciona cuando ejecutas frontend+backend en tu máquina. "
+            "Si este frontend está desplegado (Streamlit Cloud), cambia a la URL pública de tu backend."
         )
 
 st.subheader("1) Cargar documentos")
 files = st.file_uploader(
     "Sube tus documentos (PDF/Imagen). Puedes cargar muchos a la vez.",
     type=["pdf", "png", "jpg", "jpeg"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
 )
 
 colA, colB = st.columns(2)
 with colA:
-    do_process = st.button("🚀 Subir y procesar", type="primary", disabled=(not files))
+    do_process = st.button(
+        "🚀 Subir y procesar",
+        type="primary",
+        disabled=(not files),
+        help="Carga al menos un archivo para habilitar este botón.",
+    )
 with colB:
     st.write("")
 
 if do_process and files:
     if not BACKEND_URL:
-        st.error("`Backend URL` es obligatorio. Ingresa la URL pública de tu backend para continuar.")
-        st.stop()
-
-    if _is_localhost_url(BACKEND_URL):
-        st.error(
-            "`Backend URL` no puede ser localhost en despliegues de Streamlit Cloud. "
-            "Usa la URL pública de tu backend."
-        )
+        st.error("`Backend URL` es obligatorio. Ingresa la URL de tu backend para continuar.")
         st.stop()
 
     with st.spinner("Subiendo archivos al backend..."):
