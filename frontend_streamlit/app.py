@@ -85,8 +85,6 @@ with colA:
     do_process = st.button(
         "🚀 Subir y procesar",
         type="primary",
-        disabled=(not files),
-        help="Carga al menos un archivo para habilitar este botón.",
         disabled=(not files or not BACKEND_URL),
         help="Carga al menos un archivo y configura un Backend URL para habilitar este botón.",
     )
