@@ -27,8 +27,10 @@ def _resolve_default_backend_url() -> str:
     candidate_names = ["BACKEND_URL", "BACKEND_API_URL", "API_BASE_URL"]
     from_secrets = [_read_secret(name) for name in candidate_names]
     from_env = [os.getenv(name) for name in candidate_names]
+
     configured = _first_non_empty(from_secrets + from_env)
     return configured or "http://localhost:8000"
+
 
 
 def _clean_backend_url(raw_url: str) -> str:
@@ -85,6 +87,8 @@ with colA:
         type="primary",
         disabled=(not files),
         help="Carga al menos un archivo para habilitar este botón.",
+        disabled=(not files or not BACKEND_URL),
+        help="Carga al menos un archivo y configura un Backend URL para habilitar este botón.",
     )
 with colB:
     st.write("")
